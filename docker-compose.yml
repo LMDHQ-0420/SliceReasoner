@@ -1,0 +1,84 @@
+# LLaVA-Med 参数以 third_party/LLaVA-Med/llava/serve/*.py 为准（README 中 --controller/--worker 已过时）
+
+networks:
+  ai_net:
+    driver: bridge
+
+services:
+  llava-controller:
+    build:
+      context: ./docker/llava-med
+      dockerfile: Dockerfile
+    image: slicereasoner/llava-med:latest
+    container_name: llava-controller
+    networks:
+      - ai_net
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - ./third_party/LLaVA-Med:/workspace/LLaVA-Med
+    working_dir: /workspace/LLaVA-Med
+    command: >
+      python -m llava.serve.controller --host 0.0.0.0 --port 10000
+    expose:
+      - "10000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-X", "POST", "http://localhost:10000/list_models"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  llava-worker:
+    image: slicereasoner/llava-med:latest
+    container_name: llava-worker
+    networks:
+      - ai_net
+    runtime: nvidia
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+      - CUDA_VISIBLE_DEVICES=${LLAVA_CUDA_DEVICES:-0}
+      # HuggingFace Hub ID，或挂载本地目录后的容器内路径（见下方 volumes 注释）
+      - LLAVA_MODEL_PATH=${LLAVA_MODEL_PATH:-microsoft/llava-med-v1.5-mistral-7b}
+    volumes:
+      - ./third_party/LLaVA-Med:/workspace/LLaVA-Med
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      # 若已解压本地模型到 ./models/llava-med-v1.5-mistral-7b，取消下一行注释并设置：
+      # LLAVA_MODEL_PATH=/models/llava-med-v1.5-mistral-7b
+      # - ./models/llava-med-v1.5-mistral-7b:/models/llava-med-v1.5-mistral-7b:ro
+    working_dir: /workspace/LLaVA-Med
+    command: >
+      /bin/bash -c "
+      until curl -sf -X POST http://llava-controller:10000/list_models >/dev/null; do echo 'waiting for controller...'; sleep 2; done &&
+      python -m llava.serve.model_worker
+        --host 0.0.0.0
+        --controller-address http://llava-controller:10000
+        --port 40000
+        --worker-address http://llava-worker:40000
+        --model-path $${LLAVA_MODEL_PATH}
+        --multi-modal
+      "
+    expose:
+      - "40000"
+    depends_on:
+      llava-controller:
+        condition: service_healthy
+
+  main:
+    build:
+      context: ./docker/main
+      dockerfile: Dockerfile
+    container_name: main
+    networks:
+      - ai_net
+    runtime: nvidia
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - .:/workspace
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.cache/pip:/root/.cache/pip
+    working_dir: /workspace
+    command: /bin/bash -c "tail -f /dev/null"
+    stdin_open: true
+    tty: true
