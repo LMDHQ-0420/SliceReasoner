@@ -47,17 +47,22 @@ services:
       # LLAVA_MODEL_PATH=/models/llava-med-v1.5-mistral-7b
       # - ./models/llava-med-v1.5-mistral-7b:/models/llava-med-v1.5-mistral-7b:ro
     working_dir: /workspace/LLaVA-Med
-    command: >
-      /bin/bash -c "
-      until curl -sf -X POST http://llava-controller:10000/list_models >/dev/null; do echo 'waiting for controller...'; sleep 2; done &&
-      python -m llava.serve.model_worker
-        --host 0.0.0.0
-        --controller-address http://llava-controller:10000
-        --port 40000
-        --worker-address http://llava-worker:40000
-        --model-path $${LLAVA_MODEL_PATH}
-        --multi-modal
-      "
+    # 使用数组 + 单行脚本，避免多行 "command: >" 导致引号断裂、参数未传入 model_worker
+    command:
+      - /bin/bash
+      - -c
+      - |
+        until curl -sf -X POST http://llava-controller:10000/list_models >/dev/null; do
+          echo 'waiting for controller...'
+          sleep 2
+        done
+        exec python -m llava.serve.model_worker \
+          --host 0.0.0.0 \
+          --controller-address http://llava-controller:10000 \
+          --port 40000 \
+          --worker-address http://llava-worker:40000 \
+          --model-path "$${LLAVA_MODEL_PATH}" \
+          --multi-modal
     expose:
       - "40000"
     depends_on:

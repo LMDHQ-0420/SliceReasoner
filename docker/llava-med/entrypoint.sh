@@ -6,9 +6,9 @@ conda activate llava-med
 
 cd /workspace/LLaVA-Med
 
-# 挂载宿主机源码后，同步可编辑安装（与 README: pip install -e . 一致）
+# 挂载宿主机源码后，同步可编辑安装（含 eval 可选依赖：pillow 等）
 if [[ -f pyproject.toml ]]; then
-  pip install -e . -q
+  pip install -e ".[eval]" -q
 fi
 
 exec "$@"
